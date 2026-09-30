@@ -12,6 +12,9 @@ import com.example.data.local.entity.DeckEntity
 import com.example.data.local.entity.PocketEnergyType
 import com.example.data.local.entity.PocketRarity
 import com.example.data.sample.InitialPocketData
+import com.example.data.trade.FriendTradeProfile
+import com.example.data.trade.TradeComparisonResult
+import com.example.data.trade.TradeComparisonService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -61,6 +64,7 @@ class CardRepository(
     private val deckDao: DeckDao? = null
 ) {
     private val deckBuilderEngine = PocketDeckBuilderEngine()
+    private val tradeComparisonService = TradeComparisonService(cardDao)
 
     // Streams reactivos con Room
     val allCards: Flow<List<CardEntity>> = cardDao.getAllCards()
@@ -72,6 +76,26 @@ class CardRepository(
     val ownedCount: Flow<Int> = cardDao.getOwnedCount()
     val totalCopiesCount: Flow<Int> = cardDao.getTotalCopiesCount()
     val savedDecks: Flow<List<DeckEntity>> = deckDao?.getAllDecks() ?: kotlinx.coroutines.flow.flowOf(emptyList())
+
+    /**
+     * Compara reactivamente con Flow la lista de duplicados del usuario (quantity > 1)
+     * contra la wishlist de un amigo para encontrar intercambios óptimos.
+     */
+    fun observeTradeComparison(friendProfileFlow: Flow<FriendTradeProfile>): Flow<TradeComparisonResult> {
+        return tradeComparisonService.observeTradeComparison(friendProfileFlow)
+    }
+
+    suspend fun compareTradesDirect(
+        friendWishlistIds: Set<String>,
+        friendName: String = "Amigo",
+        friendDuplicates: List<CardEntity> = emptyList()
+    ): TradeComparisonResult {
+        return tradeComparisonService.compareTradesDirect(friendWishlistIds, friendName, friendDuplicates)
+    }
+
+    fun parseWishlistString(rawText: String): Set<String> {
+        return tradeComparisonService.parseWishlistString(rawText)
+    }
 
     /**
      * Construye un mazo inteligente de exactamente 20 cartas analizando las cartas obtenidas y sinergias.

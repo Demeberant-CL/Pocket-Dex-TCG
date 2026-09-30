@@ -54,6 +54,7 @@ import com.example.ui.components.ImportCsvDialog
 import com.example.ui.components.ImportResultDialog
 import com.example.ui.components.PocketCardGridItem
 import com.example.ui.components.PocketDashboardHeader
+import com.example.ui.components.TradeZoneSection
 import com.example.ui.viewmodel.CardViewModel
 import com.example.ui.viewmodel.CollectionTab
 
@@ -163,42 +164,61 @@ fun CardsScreen(
                 }
             }
 
-            // Vista condicional: Si está en Deck Builder IA o en Cuadrícula de Colección
-            if (state.selectedTab == CollectionTab.DECK_BUILDER) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 14.dp)
-                        .verticalScroll(rememberScrollState())
-                ) {
-                    DeckBuilderSection(
-                        generatedDeck = state.generatedDeck,
-                        savedDecks = state.savedDecks,
-                        isGenerating = state.isGeneratingDeck,
-                        selectedStrategy = state.selectedDeckStrategy,
-                        onStrategySelected = viewModel::onDeckStrategyChanged,
-                        selectedEnergy = state.selectedDeckEnergy,
-                        onEnergySelected = viewModel::onDeckEnergyChanged,
-                        onGenerateDeck = { viewModel.generateDeck(state.selectedDeckStrategy, state.selectedDeckEnergy) },
-                        onSaveDeck = viewModel::saveCurrentDeck,
-                        onDeleteSavedDeck = viewModel::deleteSavedDeck,
-                        onSelectCardForDetail = viewModel::selectCardForDetail,
-                        noticeMessage = state.deckNoticeMessage,
-                        onDismissNotice = viewModel::clearDeckNotice
-                    )
-                    Spacer(modifier = Modifier.height(60.dp))
+            // Vista condicional: Deck Builder IA, Zona de Trades, o Cuadrícula de Colección
+            when (state.selectedTab) {
+                CollectionTab.DECK_BUILDER -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 14.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        DeckBuilderSection(
+                            generatedDeck = state.generatedDeck,
+                            savedDecks = state.savedDecks,
+                            isGenerating = state.isGeneratingDeck,
+                            selectedStrategy = state.selectedDeckStrategy,
+                            onStrategySelected = viewModel::onDeckStrategyChanged,
+                            selectedEnergy = state.selectedDeckEnergy,
+                            onEnergySelected = viewModel::onDeckEnergyChanged,
+                            onGenerateDeck = { viewModel.generateDeck(state.selectedDeckStrategy, state.selectedDeckEnergy) },
+                            onSaveDeck = viewModel::saveCurrentDeck,
+                            onDeleteSavedDeck = viewModel::deleteSavedDeck,
+                            onSelectCardForDetail = viewModel::selectCardForDetail,
+                            noticeMessage = state.deckNoticeMessage,
+                            onDismissNotice = viewModel::clearDeckNotice
+                        )
+                        Spacer(modifier = Modifier.height(60.dp))
+                    }
                 }
-            } else {
-                // Cuadrícula reactiva LazyVerticalGrid con tarjetas estilizadas
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(state.gridColumns),
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .testTag("cards_vertical_grid"),
-                    contentPadding = PaddingValues(14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
+                CollectionTab.DUPLICATES -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 14.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        TradeZoneSection(
+                            comparisonResult = state.tradeComparison,
+                            onFriendWishlistInputChanged = viewModel::onFriendWishlistInputChanged,
+                            currentWishlistInput = state.friendWishlistInput,
+                            onApplyPreset = viewModel::applyFriendTradePreset,
+                            onSelectCardForDetail = viewModel::selectCardForDetail
+                        )
+                        Spacer(modifier = Modifier.height(60.dp))
+                    }
+                }
+                else -> {
+                    // Cuadrícula reactiva LazyVerticalGrid con tarjetas estilizadas
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(state.gridColumns),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .testTag("cards_vertical_grid"),
+                        contentPadding = PaddingValues(14.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
                     // 1. Cabecera: Métricas del Dashboard (ocupa todo el ancho del grid)
                     item(span = { GridItemSpan(state.gridColumns) }) {
                         PocketDashboardHeader(state = state)
@@ -280,6 +300,7 @@ fun CardsScreen(
             }
         }
     }
+}
 
     // Modal de Inspección Detallada de Carta
     CardDetailBottomSheet(

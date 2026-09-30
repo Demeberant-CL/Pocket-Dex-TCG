@@ -113,4 +113,83 @@ class CardDatabaseTest {
         assertTrue(deck.analysis.basicCount >= 1)
         assertTrue(deck.cards.all { it.count in 1..2 })
     }
+
+    @Test
+    fun testTradeComparisonWithCoroutinesAndFlow() = runBlocking {
+        // El usuario tiene duplicados de Moltres ex (quantity = 2) y Greninja (quantity = 3)
+        cardDao.upsertCard(
+            CardEntity(
+                id = "A1-047",
+                name = "Moltres ex",
+                expansion = "Genetic Apex",
+                rarity = "FOUR_DIAMONDS",
+                energyType = "Fire",
+                isOwned = true,
+                quantity = 2 // 1 copia extra disponible para trade
+            )
+        )
+        cardDao.upsertCard(
+            CardEntity(
+                id = "A1-089",
+                name = "Greninja",
+                expansion = "Genetic Apex",
+                rarity = "THREE_DIAMONDS",
+                energyType = "Water",
+                isOwned = true,
+                quantity = 3 // 2 copias extras disponibles para trade
+            )
+        )
+        // Y el usuario tiene en su Wishlist a Zapdos ex (A1-103, 4 Diamantes)
+        cardDao.upsertCard(
+            CardEntity(
+                id = "A1-103",
+                name = "Zapdos ex",
+                expansion = "Genetic Apex",
+                rarity = "FOUR_DIAMONDS",
+                energyType = "Lightning",
+                isOwned = false,
+                quantity = 0,
+                isWishlist = true
+            )
+        )
+
+        // El amigo tiene en su Wishlist a Moltres ex (A1-047) y ofrece un duplicado de Zapdos ex (A1-103)
+        val friendProfile = com.example.data.trade.FriendTradeProfile(
+            friendName = "Ash Ketchum",
+            wishlistCardIds = setOf("A1-047", "A1-999"),
+            availableDuplicates = listOf(
+                CardEntity(
+                    id = "A1-103",
+                    name = "Zapdos ex",
+                    expansion = "Genetic Apex",
+                    rarity = "FOUR_DIAMONDS",
+                    energyType = "Lightning",
+                    isOwned = true,
+                    quantity = 2
+                )
+            )
+        )
+
+        val flow = repository.observeTradeComparison(kotlinx.coroutines.flow.flowOf(friendProfile))
+        val result = flow.first()
+
+        // Verificaciones
+        assertNotNull(result)
+        assertEquals("Ash Ketchum", result.friendName)
+        // 1. Debe haber encontrado a Moltres ex como coincidencia que podemos entregar
+        assertEquals(1, result.matchesToGive.size)
+        assertEquals("A1-047", result.matchesToGive[0].card.id)
+        assertEquals(1, result.matchesToGive[0].extraCopiesAvailable)
+
+        // 2. Debe haber encontrado a Zapdos ex como coincidencia que podemos recibir
+        assertEquals(1, result.matchesToReceive.size)
+        assertEquals("A1-103", result.matchesToReceive[0].card.id)
+
+        // 3. Debe haber generado un intercambio 1:1 equitativo (ambas son 4 Diamantes / ex)
+        assertEquals(1, result.optimalFairTrades.size)
+        val fairTrade = result.optimalFairTrades[0]
+        assertEquals("Moltres ex", fairTrade.cardGiven.name)
+        assertEquals("Zapdos ex", fairTrade.cardReceived.name)
+        assertEquals(fairTrade.cardGiven.rarity, fairTrade.cardReceived.rarity)
+    }
 }

@@ -74,11 +74,17 @@ interface CardDao {
     @Query("SELECT * FROM cards WHERE quantity > 1 ORDER BY quantity DESC, name ASC")
     fun getDuplicateCards(): Flow<List<CardEntity>>
 
+    @Query("SELECT * FROM cards WHERE quantity > 1 ORDER BY quantity DESC, name ASC")
+    suspend fun findDuplicatesDirect(): List<CardEntity>
+
     /**
      * Obtiene las cartas marcadas en la lista de deseos (Wishlist).
      */
     @Query("SELECT * FROM cards WHERE isWishlist = 1 ORDER BY expansion ASC, cardNumber ASC")
     fun getWishlistCards(): Flow<List<CardEntity>>
+
+    @Query("SELECT * FROM cards WHERE isWishlist = 1 ORDER BY expansion ASC, cardNumber ASC")
+    suspend fun findWishlistDirect(): List<CardEntity>
 
     /**
      * Filtra cartas por expansión específica (ej: "Genetic Apex", "Mythical Island").

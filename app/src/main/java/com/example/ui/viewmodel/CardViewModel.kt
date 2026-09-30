@@ -13,6 +13,8 @@ import com.example.data.local.entity.PocketRarity
 import com.example.data.repository.CardRepository
 import com.example.data.repository.CsvImportSummary
 import com.example.data.repository.UpsertStrategy
+import com.example.data.trade.FriendTradeProfile
+import com.example.data.trade.TradeComparisonResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -66,7 +68,16 @@ data class CardsUiState(
     val isGeneratingDeck: Boolean = false,
     val selectedDeckStrategy: DeckStrategy = DeckStrategy.META_OPTIMAL,
     val selectedDeckEnergy: String? = null,
-    val deckNoticeMessage: String? = null
+    val deckNoticeMessage: String? = null,
+    // Módulo 4: Zona de Intercambios (Trades)
+    val tradeComparison: TradeComparisonResult = TradeComparisonResult(
+        friendName = "Rival Gary",
+        matchesToGive = emptyList(),
+        matchesToReceive = emptyList(),
+        optimalFairTrades = emptyList(),
+        totalPossibleTrades = 0
+    ),
+    val friendWishlistInput: String = "A1-047, A1-096, A1-089"
 ) {
     val completionPercentage: Float
         get() = if (totalCardsInCatalog > 0) (uniqueOwnedCount.toFloat() / totalCardsInCatalog) * 100f else 0f
@@ -108,6 +119,19 @@ class CardViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedDeckEnergy = MutableStateFlow<String?>("Psychic")
     private val _deckNoticeMessage = MutableStateFlow<String?>(null)
 
+    // Estados para el Módulo 4: Zona de Intercambios (Trades)
+    private val _friendWishlistInput = MutableStateFlow("A1-047, A1-096, A1-089")
+    private val _friendTradeProfile = MutableStateFlow(
+        FriendTradeProfile(
+            friendName = "Rival Gary",
+            wishlistCardIds = setOf("A1-047", "A1-096", "A1-089"),
+            availableDuplicates = listOf(
+                CardEntity("A1-103", "Zapdos ex", "Genetic Apex", "FOUR_DIAMONDS", "Lightning", isOwned = true, quantity = 2),
+                CardEntity("A1-056", "Blastoise ex", "Genetic Apex", "FOUR_DIAMONDS", "Water", isOwned = true, quantity = 2)
+            )
+        )
+    )
+
     val uiState: StateFlow<CardsUiState> = combine(
         repository.allCards,
         repository.savedDecks,
@@ -122,7 +146,9 @@ class CardViewModel(application: Application) : AndroidViewModel(application) {
         _generatedDeck,
         _selectedDeckStrategy,
         _selectedDeckEnergy,
-        _deckNoticeMessage
+        _deckNoticeMessage,
+        repository.observeTradeComparison(_friendTradeProfile),
+        _friendWishlistInput
     ) { args: Array<Any?> ->
         @Suppress("UNCHECKED_CAST")
         val allCards = args[0] as List<CardEntity>
@@ -140,6 +166,8 @@ class CardViewModel(application: Application) : AndroidViewModel(application) {
         val deckStrat = args[11] as DeckStrategy
         val deckEnergy = args[12] as String?
         val deckNotice = args[13] as String?
+        val tradeResult = args[14] as TradeComparisonResult
+        val friendWishlistInput = args[15] as String
 
         val totalInCatalog = allCards.size
         val uniqueOwned = allCards.count { it.isOwned }
@@ -204,7 +232,9 @@ class CardViewModel(application: Application) : AndroidViewModel(application) {
             isGeneratingDeck = _isGeneratingDeck.value,
             selectedDeckStrategy = deckStrat,
             selectedDeckEnergy = deckEnergy,
-            deckNoticeMessage = deckNotice
+            deckNoticeMessage = deckNotice,
+            tradeComparison = tradeResult,
+            friendWishlistInput = friendWishlistInput
         )
     }.stateIn(
         scope = viewModelScope,
@@ -339,6 +369,23 @@ class CardViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearDeckNotice() {
         _deckNoticeMessage.value = null
+    }
+
+    // --- Módulo 4: Métodos de la Zona de Intercambios (Trades) ---
+
+    fun onFriendWishlistInputChanged(text: String) {
+        _friendWishlistInput.value = text
+        val parsedIds = repository.parseWishlistString(text)
+        _friendTradeProfile.value = _friendTradeProfile.value.copy(wishlistCardIds = parsedIds)
+    }
+
+    fun applyFriendTradePreset(name: String, wishlistIds: Set<String>, duplicates: List<CardEntity>) {
+        _friendWishlistInput.value = wishlistIds.joinToString(", ")
+        _friendTradeProfile.value = FriendTradeProfile(
+            friendName = name,
+            wishlistCardIds = wishlistIds,
+            availableDuplicates = duplicates
+        )
     }
 
     fun importCsvFromUri(uri: Uri, strategy: UpsertStrategy) {

@@ -13,6 +13,7 @@ import com.example.data.local.entity.PocketRarity
 import com.example.data.repository.CardRepository
 import com.example.data.repository.CsvImportSummary
 import com.example.data.repository.UpsertStrategy
+import com.example.data.simulator.OpenedPackResult
 import com.example.data.trade.FriendTradeProfile
 import com.example.data.trade.TradeComparisonResult
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,7 +31,8 @@ enum class CollectionTab(val title: String) {
     OWNED("En Álbum"),
     DUPLICATES("Trades"),
     WISHLIST("Deseadas"),
-    DECK_BUILDER("Deck Builder IA")
+    DECK_BUILDER("Deck Builder IA"),
+    PACK_OPENING("Sobres")
 }
 
 /**
@@ -77,7 +79,10 @@ data class CardsUiState(
         optimalFairTrades = emptyList(),
         totalPossibleTrades = 0
     ),
-    val friendWishlistInput: String = "A1-047, A1-096, A1-089"
+    val friendWishlistInput: String = "A1-047, A1-096, A1-089",
+    // Módulo 5: Simulador de Apertura de Sobres
+    val openedPack: OpenedPackResult? = null,
+    val isOpeningPack: Boolean = false
 ) {
     val completionPercentage: Float
         get() = if (totalCardsInCatalog > 0) (uniqueOwnedCount.toFloat() / totalCardsInCatalog) * 100f else 0f
@@ -132,6 +137,10 @@ class CardViewModel(application: Application) : AndroidViewModel(application) {
         )
     )
 
+    // Estados para el Módulo 5: Simulador de Apertura de Sobres
+    private val _openedPack = MutableStateFlow<OpenedPackResult?>(null)
+    private val _isOpeningPack = MutableStateFlow(false)
+
     val uiState: StateFlow<CardsUiState> = combine(
         repository.allCards,
         repository.savedDecks,
@@ -148,7 +157,9 @@ class CardViewModel(application: Application) : AndroidViewModel(application) {
         _selectedDeckEnergy,
         _deckNoticeMessage,
         repository.observeTradeComparison(_friendTradeProfile),
-        _friendWishlistInput
+        _friendWishlistInput,
+        _openedPack,
+        _isOpeningPack
     ) { args: Array<Any?> ->
         @Suppress("UNCHECKED_CAST")
         val allCards = args[0] as List<CardEntity>
@@ -168,6 +179,8 @@ class CardViewModel(application: Application) : AndroidViewModel(application) {
         val deckNotice = args[13] as String?
         val tradeResult = args[14] as TradeComparisonResult
         val friendWishlistInput = args[15] as String
+        val openedPack = args[16] as OpenedPackResult?
+        val isOpening = args[17] as Boolean
 
         val totalInCatalog = allCards.size
         val uniqueOwned = allCards.count { it.isOwned }
@@ -187,6 +200,7 @@ class CardViewModel(application: Application) : AndroidViewModel(application) {
                 CollectionTab.DUPLICATES -> card.quantity > 1
                 CollectionTab.WISHLIST -> card.isWishlist
                 CollectionTab.DECK_BUILDER -> true
+                CollectionTab.PACK_OPENING -> true
             }
 
             val matchesQuery = query.isBlank() ||
@@ -234,7 +248,9 @@ class CardViewModel(application: Application) : AndroidViewModel(application) {
             selectedDeckEnergy = deckEnergy,
             deckNoticeMessage = deckNotice,
             tradeComparison = tradeResult,
-            friendWishlistInput = friendWishlistInput
+            friendWishlistInput = friendWishlistInput,
+            openedPack = openedPack,
+            isOpeningPack = isOpening
         )
     }.stateIn(
         scope = viewModelScope,
@@ -386,6 +402,29 @@ class CardViewModel(application: Application) : AndroidViewModel(application) {
             wishlistCardIds = wishlistIds,
             availableDuplicates = duplicates
         )
+    }
+
+    // --- Módulo 5: Métodos de Apertura de Sobres ---
+
+    fun openPack(packName: String) {
+        viewModelScope.launch {
+            _isOpeningPack.value = true
+            // Breve retardo visual para simular la animación de rasgar el sobre
+            kotlinx.coroutines.delay(450)
+            val catalog = uiState.value.cards.ifEmpty {
+                com.example.data.sample.InitialPocketData.getInitialCards()
+            }
+            val result = repository.simulatePackOpening(catalog, packName)
+            _openedPack.value = result
+            _isOpeningPack.value = false
+        }
+    }
+
+    fun addOpenedPackCardsToCollection(cards: List<CardEntity>) {
+        viewModelScope.launch {
+            val (newCards, dupes) = repository.addOpenedCardsToCollection(cards)
+            _deckNoticeMessage.value = "¡Sobre añadido al inventario! (+$newCards nuevas, +$dupes duplicadas para trade)"
+        }
     }
 
     fun importCsvFromUri(uri: Uri, strategy: UpsertStrategy) {

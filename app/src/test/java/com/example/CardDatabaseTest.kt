@@ -192,4 +192,19 @@ class CardDatabaseTest {
         assertEquals("Zapdos ex", fairTrade.cardReceived.name)
         assertEquals(fairTrade.cardGiven.rarity, fairTrade.cardReceived.rarity)
     }
+
+    @Test
+    fun testPackOpeningSimulatorGeneratesExactly5Cards() = runBlocking {
+        val initialCards = com.example.data.sample.InitialPocketData.getInitialCards()
+        val result = repository.simulatePackOpening(initialCards, "Charizard")
+
+        assertNotNull(result)
+        assertEquals(5, result.cards.size)
+        assertEquals("Charizard", result.packName)
+        assertNotNull(result.highestRarity)
+
+        // Comprobar que las 5 cartas pueden guardarse en la colección local
+        val (newCards, dupes) = repository.addOpenedCardsToCollection(result.cards)
+        assertEquals(5, newCards + dupes)
+    }
 }

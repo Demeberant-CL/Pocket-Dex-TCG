@@ -12,6 +12,8 @@ import com.example.data.local.entity.DeckEntity
 import com.example.data.local.entity.PocketEnergyType
 import com.example.data.local.entity.PocketRarity
 import com.example.data.sample.InitialPocketData
+import com.example.data.simulator.OpenedPackResult
+import com.example.data.simulator.PocketPackOpeningSimulator
 import com.example.data.trade.FriendTradeProfile
 import com.example.data.trade.TradeComparisonResult
 import com.example.data.trade.TradeComparisonService
@@ -65,6 +67,7 @@ class CardRepository(
 ) {
     private val deckBuilderEngine = PocketDeckBuilderEngine()
     private val tradeComparisonService = TradeComparisonService(cardDao)
+    private val packSimulator = PocketPackOpeningSimulator()
 
     // Streams reactivos con Room
     val allCards: Flow<List<CardEntity>> = cardDao.getAllCards()
@@ -95,6 +98,44 @@ class CardRepository(
 
     fun parseWishlistString(rawText: String): Set<String> {
         return tradeComparisonService.parseWishlistString(rawText)
+    }
+
+    /**
+     * Simula la apertura de un sobre de 5 cartas de Pokémon TCG Pocket con tasas reales.
+     */
+    fun simulatePackOpening(catalog: List<CardEntity>, packName: String): OpenedPackResult {
+        return packSimulator.openPack(catalog, packName)
+    }
+
+    /**
+     * Añade las 5 cartas abiertas en el sobre a la colección del usuario en Room.
+     * Si la carta no estaba obtenida, se marca como obtenida con cantidad 1.
+     * Si ya estaba en el álbum, incrementa su cantidad (+1) generando potencial de trade.
+     * Retorna Pair(nuevasCartas, duplicadas).
+     */
+    suspend fun addOpenedCardsToCollection(cards: List<CardEntity>): Pair<Int, Int> = withContext(Dispatchers.IO) {
+        var newCount = 0
+        var dupeCount = 0
+
+        for (card in cards) {
+            val existing = cardDao.findCardById(card.id)
+            if (existing != null) {
+                if (existing.isOwned && existing.quantity > 0) {
+                    // Ya la tenía, se suma 1 copia
+                    cardDao.upsertCard(existing.copy(quantity = existing.quantity + 1))
+                    dupeCount++
+                } else {
+                    // Es una nueva carta para el álbum
+                    cardDao.upsertCard(existing.copy(isOwned = true, quantity = 1))
+                    newCount++
+                }
+            } else {
+                cardDao.upsertCard(card.copy(isOwned = true, quantity = 1))
+                newCount++
+            }
+        }
+
+        Pair(newCount, dupeCount)
     }
 
     /**

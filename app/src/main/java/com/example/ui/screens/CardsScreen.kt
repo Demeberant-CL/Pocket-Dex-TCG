@@ -52,6 +52,7 @@ import com.example.ui.components.CollectionFilterHeader
 import com.example.ui.components.DeckBuilderSection
 import com.example.ui.components.ImportCsvDialog
 import com.example.ui.components.ImportResultDialog
+import com.example.ui.components.PackSimulatorSection
 import com.example.ui.components.PocketCardGridItem
 import com.example.ui.components.PocketDashboardHeader
 import com.example.ui.components.TradeZoneSection
@@ -121,7 +122,7 @@ fun CardsScreen(
             )
         },
         floatingActionButton = {
-            if (state.selectedTab != CollectionTab.DECK_BUILDER) {
+            if (state.selectedTab != CollectionTab.DECK_BUILDER && state.selectedTab != CollectionTab.PACK_OPENING) {
                 ExtendedFloatingActionButton(
                     onClick = { viewModel.setShowImportSheet(true) },
                     icon = { Icon(Icons.Default.FileOpen, contentDescription = null) },
@@ -154,6 +155,7 @@ fun CardsScreen(
                                     CollectionTab.DUPLICATES -> "Trades (${state.duplicateCardsCount})"
                                     CollectionTab.WISHLIST -> "Wishlist (${state.wishlistCount})"
                                     CollectionTab.DECK_BUILDER -> "✨ Deck IA"
+                                    CollectionTab.PACK_OPENING -> "🎴 Sobres"
                                 },
                                 fontWeight = if (state.selectedTab == tab) FontWeight.Bold else FontWeight.Normal,
                                 fontSize = 11.sp,
@@ -164,7 +166,7 @@ fun CardsScreen(
                 }
             }
 
-            // Vista condicional: Deck Builder IA, Zona de Trades, o Cuadrícula de Colección
+            // Vista condicional: Deck Builder IA, Zona de Trades, Simulador de Sobres o Cuadrícula
             when (state.selectedTab) {
                 CollectionTab.DECK_BUILDER -> {
                     Column(
@@ -203,6 +205,23 @@ fun CardsScreen(
                             onFriendWishlistInputChanged = viewModel::onFriendWishlistInputChanged,
                             currentWishlistInput = state.friendWishlistInput,
                             onApplyPreset = viewModel::applyFriendTradePreset,
+                            onSelectCardForDetail = viewModel::selectCardForDetail
+                        )
+                        Spacer(modifier = Modifier.height(60.dp))
+                    }
+                }
+                CollectionTab.PACK_OPENING -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 14.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        PackSimulatorSection(
+                            openedPack = state.openedPack,
+                            isOpening = state.isOpeningPack,
+                            onOpenPack = viewModel::openPack,
+                            onSaveToCollection = viewModel::addOpenedPackCardsToCollection,
                             onSelectCardForDetail = viewModel::selectCardForDetail
                         )
                         Spacer(modifier = Modifier.height(60.dp))

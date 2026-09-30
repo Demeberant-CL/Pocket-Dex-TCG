@@ -1,0 +1,6 @@
+{
+  "name": "Pocket Dex TCG",
+  "description": "Pokémon TCG Pocket Companion: colección de cartas, base de datos Room, importación CSV y gestión offline.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -99,4 +99,18 @@ class CardDatabaseTest {
         assertEquals(180, mergedCard?.hp)
         assertEquals("Charizard", mergedCard?.packName)
     }
+
+    @Test
+    fun testDeckBuilderProducesExactly20Cards() = runBlocking {
+        val initialCards = com.example.data.sample.InitialPocketData.getInitialCards()
+        val deck = repository.generateBalancedDeck(
+            allCards = initialCards,
+            strategy = com.example.data.deck.DeckStrategy.META_OPTIMAL
+        )
+
+        assertNotNull(deck)
+        assertEquals(20, deck.totalCardCount)
+        assertTrue(deck.analysis.basicCount >= 1)
+        assertTrue(deck.cards.all { it.count in 1..2 })
+    }
 }

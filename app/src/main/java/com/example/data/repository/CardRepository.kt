@@ -2,8 +2,13 @@ package com.example.data.repository
 
 import android.content.Context
 import android.net.Uri
+import com.example.data.deck.DeckStrategy
+import com.example.data.deck.GeneratedDeck
+import com.example.data.deck.PocketDeckBuilderEngine
 import com.example.data.local.dao.CardDao
+import com.example.data.local.dao.DeckDao
 import com.example.data.local.entity.CardEntity
+import com.example.data.local.entity.DeckEntity
 import com.example.data.local.entity.PocketEnergyType
 import com.example.data.local.entity.PocketRarity
 import com.example.data.sample.InitialPocketData
@@ -52,8 +57,10 @@ data class CsvImportSummary(
  */
 class CardRepository(
     private val cardDao: CardDao,
-    private val context: Context
+    private val context: Context,
+    private val deckDao: DeckDao? = null
 ) {
+    private val deckBuilderEngine = PocketDeckBuilderEngine()
 
     // Streams reactivos con Room
     val allCards: Flow<List<CardEntity>> = cardDao.getAllCards()
@@ -64,6 +71,38 @@ class CardRepository(
     val totalCount: Flow<Int> = cardDao.getTotalCount()
     val ownedCount: Flow<Int> = cardDao.getOwnedCount()
     val totalCopiesCount: Flow<Int> = cardDao.getTotalCopiesCount()
+    val savedDecks: Flow<List<DeckEntity>> = deckDao?.getAllDecks() ?: kotlinx.coroutines.flow.flowOf(emptyList())
+
+    /**
+     * Construye un mazo inteligente de exactamente 20 cartas analizando las cartas obtenidas y sinergias.
+     */
+    fun generateBalancedDeck(
+        allCards: List<CardEntity>,
+        strategy: DeckStrategy,
+        forcedEnergy: String? = null
+    ): GeneratedDeck {
+        return deckBuilderEngine.buildDeck(allCards, strategy, forcedEnergy)
+    }
+
+    suspend fun saveDeck(deck: GeneratedDeck) = withContext(Dispatchers.IO) {
+        val pairsSerialized = deck.cards.joinToString(",") { "${it.card.id}:${it.count}" }
+        val entity = DeckEntity(
+            id = deck.id,
+            name = deck.name,
+            archetype = deck.archetype,
+            strategy = deck.strategy.name,
+            primaryEnergy = deck.primaryEnergy,
+            cardPairsSerialized = pairsSerialized,
+            synergyScore = deck.analysis.synergyScore,
+            metaTier = deck.analysis.metaTier,
+            createdAt = System.currentTimeMillis()
+        )
+        deckDao?.insertDeck(entity)
+    }
+
+    suspend fun deleteDeck(deckId: String) = withContext(Dispatchers.IO) {
+        deckDao?.deleteDeckById(deckId)
+    }
 
     fun getCardsByExpansion(expansion: String): Flow<List<CardEntity>> =
         cardDao.getCardsByExpansion(expansion)

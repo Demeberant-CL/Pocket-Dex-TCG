@@ -16,7 +16,9 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.Refresh
@@ -47,6 +49,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.components.CardDetailBottomSheet
 import com.example.ui.components.CollectionFilterHeader
+import com.example.ui.components.DeckBuilderSection
 import com.example.ui.components.ImportCsvDialog
 import com.example.ui.components.ImportResultDialog
 import com.example.ui.components.PocketCardGridItem
@@ -55,10 +58,11 @@ import com.example.ui.viewmodel.CardViewModel
 import com.example.ui.viewmodel.CollectionTab
 
 /**
- * Pantalla principal de la colección digital de Pokémon TCG Pocket.
- * Implementa una cuadrícula reactiva (LazyVerticalGrid) con tarjetas estilizadas,
- * indicadores de posesión (iluminadas vs siluetas desaturadas), distintivos de duplicados para trade,
- * y una barra superior con filtros reactivos por tipo y rareza gestionados con StateFlow.
+ * Pantalla principal de la aplicación Pokémon TCG Pocket:
+ * - Pestañas: Catálogo, En Álbum, Duplicados (Trade), Deseadas (Wishlist) y Deck Builder IA.
+ * - Cuadrícula reactiva LazyVerticalGrid con tarjetas estilizadas.
+ * - Barra superior con filtros reactivos por tipo y rareza vía StateFlow.
+ * - Módulo 3: Asistente Deck Builder IA optimizado para 20 cartas.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -116,12 +120,14 @@ fun CardsScreen(
             )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { viewModel.setShowImportSheet(true) },
-                icon = { Icon(Icons.Default.FileOpen, contentDescription = null) },
-                text = { Text("Importar CSV", fontWeight = FontWeight.Bold) },
-                modifier = Modifier.testTag("fab_import_csv")
-            )
+            if (state.selectedTab != CollectionTab.DECK_BUILDER) {
+                ExtendedFloatingActionButton(
+                    onClick = { viewModel.setShowImportSheet(true) },
+                    icon = { Icon(Icons.Default.FileOpen, contentDescription = null) },
+                    text = { Text("Importar CSV", fontWeight = FontWeight.Bold) },
+                    modifier = Modifier.testTag("fab_import_csv")
+                )
+            }
         }
     ) { innerPadding ->
         Column(
@@ -129,7 +135,7 @@ fun CardsScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            // Pestañas principales de colección
+            // Pestañas principales
             PrimaryTabRow(
                 selectedTabIndex = state.selectedTab.ordinal,
                 modifier = Modifier.fillMaxWidth()
@@ -143,12 +149,13 @@ fun CardsScreen(
                             Text(
                                 text = when (tab) {
                                     CollectionTab.ALL -> "Catálogo (${state.totalCardsInCatalog})"
-                                    CollectionTab.OWNED -> "En Álbum (${state.uniqueOwnedCount})"
+                                    CollectionTab.OWNED -> "Álbum (${state.uniqueOwnedCount})"
                                     CollectionTab.DUPLICATES -> "Trades (${state.duplicateCardsCount})"
                                     CollectionTab.WISHLIST -> "Wishlist (${state.wishlistCount})"
+                                    CollectionTab.DECK_BUILDER -> "✨ Deck IA"
                                 },
                                 fontWeight = if (state.selectedTab == tab) FontWeight.Bold else FontWeight.Normal,
-                                fontSize = 12.sp,
+                                fontSize = 11.sp,
                                 maxLines = 1
                             )
                         }
@@ -156,92 +163,119 @@ fun CardsScreen(
                 }
             }
 
-            // Cuadrícula reactiva LazyVerticalGrid con tarjetas estilizadas
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(state.gridColumns),
-                modifier = Modifier
-                    .fillMaxSize()
-                    .testTag("cards_vertical_grid"),
-                contentPadding = PaddingValues(14.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                // 1. Cabecera: Métricas del Dashboard (ocupa todo el ancho del grid)
-                item(span = { GridItemSpan(state.gridColumns) }) {
-                    PocketDashboardHeader(state = state)
-                }
-
-                // 2. Barra Superior con Filtros Reactivos por Tipo y Rareza usando StateFlow
-                item(span = { GridItemSpan(state.gridColumns) }) {
-                    CollectionFilterHeader(
-                        searchQuery = state.searchQuery,
-                        onSearchChanged = viewModel::onSearchQueryChanged,
-                        selectedEnergy = state.selectedEnergy,
-                        onEnergySelected = viewModel::onEnergySelected,
-                        selectedRarity = state.selectedRarity,
-                        onRaritySelected = viewModel::onRaritySelected,
-                        currentSort = state.sortOption,
-                        onSortSelected = viewModel::onSortSelected,
-                        gridColumns = state.gridColumns,
-                        onToggleGridColumns = viewModel::toggleGridColumns,
-                        hasActiveFilters = state.hasActiveFilters,
-                        onClearFilters = viewModel::clearAllFilters
+            // Vista condicional: Si está en Deck Builder IA o en Cuadrícula de Colección
+            if (state.selectedTab == CollectionTab.DECK_BUILDER) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 14.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    DeckBuilderSection(
+                        generatedDeck = state.generatedDeck,
+                        savedDecks = state.savedDecks,
+                        isGenerating = state.isGeneratingDeck,
+                        selectedStrategy = state.selectedDeckStrategy,
+                        onStrategySelected = viewModel::onDeckStrategyChanged,
+                        selectedEnergy = state.selectedDeckEnergy,
+                        onEnergySelected = viewModel::onDeckEnergyChanged,
+                        onGenerateDeck = { viewModel.generateDeck(state.selectedDeckStrategy, state.selectedDeckEnergy) },
+                        onSaveDeck = viewModel::saveCurrentDeck,
+                        onDeleteSavedDeck = viewModel::deleteSavedDeck,
+                        onSelectCardForDetail = viewModel::selectCardForDetail,
+                        noticeMessage = state.deckNoticeMessage,
+                        onDismissNotice = viewModel::clearDeckNotice
                     )
+                    Spacer(modifier = Modifier.height(60.dp))
                 }
-
-                // 3. Indicador de resultados
-                item(span = { GridItemSpan(state.gridColumns) }) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 4.dp, vertical = 2.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "${state.cards.size} cartas encontradas",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        if (state.hasActiveFilters) {
-                            Text(
-                                text = "Filtros activos",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    }
-                }
-
-                // 4. Cartas en la Cuadrícula estilizada
-                if (state.cards.isEmpty()) {
+            } else {
+                // Cuadrícula reactiva LazyVerticalGrid con tarjetas estilizadas
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(state.gridColumns),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .testTag("cards_vertical_grid"),
+                    contentPadding = PaddingValues(14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // 1. Cabecera: Métricas del Dashboard (ocupa todo el ancho del grid)
                     item(span = { GridItemSpan(state.gridColumns) }) {
-                        EmptyStateView(
-                            tab = state.selectedTab,
-                            hasFilter = state.hasActiveFilters,
+                        PocketDashboardHeader(state = state)
+                    }
+
+                    // 2. Barra Superior con Filtros Reactivos por Tipo y Rareza usando StateFlow
+                    item(span = { GridItemSpan(state.gridColumns) }) {
+                        CollectionFilterHeader(
+                            searchQuery = state.searchQuery,
+                            onSearchChanged = viewModel::onSearchQueryChanged,
+                            selectedEnergy = state.selectedEnergy,
+                            onEnergySelected = viewModel::onEnergySelected,
+                            selectedRarity = state.selectedRarity,
+                            onRaritySelected = viewModel::onRaritySelected,
+                            currentSort = state.sortOption,
+                            onSortSelected = viewModel::onSortSelected,
+                            gridColumns = state.gridColumns,
+                            onToggleGridColumns = viewModel::toggleGridColumns,
+                            hasActiveFilters = state.hasActiveFilters,
                             onClearFilters = viewModel::clearAllFilters
                         )
                     }
-                } else {
-                    items(
-                        items = state.cards,
-                        key = { it.id }
-                    ) { card ->
-                        PocketCardGridItem(
-                            card = card,
-                            onClick = { viewModel.selectCardForDetail(card) },
-                            onIncrement = { viewModel.incrementQuantity(card) },
-                            onDecrement = { viewModel.decrementQuantity(card) },
-                            onToggleWishlist = { viewModel.toggleWishlist(card) },
-                            isCompact = state.gridColumns == 3
-                        )
-                    }
-                }
 
-                // Espacio inferior para no tapar con el FloatingActionButton
-                item(span = { GridItemSpan(state.gridColumns) }) {
-                    Spacer(modifier = Modifier.height(72.dp))
+                    // 3. Indicador de resultados
+                    item(span = { GridItemSpan(state.gridColumns) }) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 4.dp, vertical = 2.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "${state.cards.size} cartas encontradas",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (state.hasActiveFilters) {
+                                Text(
+                                    text = "Filtros activos",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
+
+                    // 4. Cartas en la Cuadrícula estilizada
+                    if (state.cards.isEmpty()) {
+                        item(span = { GridItemSpan(state.gridColumns) }) {
+                            EmptyStateView(
+                                tab = state.selectedTab,
+                                hasFilter = state.hasActiveFilters,
+                                onClearFilters = viewModel::clearAllFilters
+                            )
+                        }
+                    } else {
+                        items(
+                            items = state.cards,
+                            key = { it.id }
+                        ) { card ->
+                            PocketCardGridItem(
+                                card = card,
+                                onClick = { viewModel.selectCardForDetail(card) },
+                                onIncrement = { viewModel.incrementQuantity(card) },
+                                onDecrement = { viewModel.decrementQuantity(card) },
+                                onToggleWishlist = { viewModel.toggleWishlist(card) },
+                                isCompact = state.gridColumns == 3
+                            )
+                        }
+                    }
+
+                    // Espacio inferior para no tapar con el FloatingActionButton
+                    item(span = { GridItemSpan(state.gridColumns) }) {
+                        Spacer(modifier = Modifier.height(72.dp))
+                    }
                 }
             }
         }

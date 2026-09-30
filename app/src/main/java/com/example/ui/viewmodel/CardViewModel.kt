@@ -4,8 +4,11 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.deck.DeckStrategy
+import com.example.data.deck.GeneratedDeck
 import com.example.data.local.AppDatabase
 import com.example.data.local.entity.CardEntity
+import com.example.data.local.entity.DeckEntity
 import com.example.data.local.entity.PocketRarity
 import com.example.data.repository.CardRepository
 import com.example.data.repository.CsvImportSummary
@@ -18,13 +21,14 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /**
- * Pestañas principales de navegación en la colección de Pokémon TCG Pocket.
+ * Pestañas principales de navegación en la aplicación de Pokémon TCG Pocket.
  */
 enum class CollectionTab(val title: String) {
     ALL("Catálogo"),
     OWNED("En Álbum"),
     DUPLICATES("Trades"),
-    WISHLIST("Deseadas")
+    WISHLIST("Deseadas"),
+    DECK_BUILDER("Deck Builder IA")
 }
 
 /**
@@ -50,12 +54,19 @@ data class CardsUiState(
     val selectedRarity: String = "ALL",
     val selectedTab: CollectionTab = CollectionTab.ALL,
     val sortOption: SortOption = SortOption.NUMBER,
-    val gridColumns: Int = 2, // 2 para vista detallada, 3 para vista tipo álbum
+    val gridColumns: Int = 2,
     val selectedCardForDetail: CardEntity? = null,
     val isImporting: Boolean = false,
     val importSummary: CsvImportSummary? = null,
     val errorMessage: String? = null,
-    val showImportSheet: Boolean = false
+    val showImportSheet: Boolean = false,
+    // Módulo 3: Deck Builder IA
+    val generatedDeck: GeneratedDeck? = null,
+    val savedDecks: List<DeckEntity> = emptyList(),
+    val isGeneratingDeck: Boolean = false,
+    val selectedDeckStrategy: DeckStrategy = DeckStrategy.META_OPTIMAL,
+    val selectedDeckEnergy: String? = null,
+    val deckNoticeMessage: String? = null
 ) {
     val completionPercentage: Float
         get() = if (totalCardsInCatalog > 0) (uniqueOwnedCount.toFloat() / totalCardsInCatalog) * 100f else 0f
@@ -70,7 +81,11 @@ class CardViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         val database = AppDatabase.getDatabase(application)
-        repository = CardRepository(database.cardDao(), application)
+        repository = CardRepository(
+            cardDao = database.cardDao(),
+            context = application,
+            deckDao = database.deckDao()
+        )
     }
 
     private val _searchQuery = MutableStateFlow("")
@@ -86,8 +101,16 @@ class CardViewModel(application: Application) : AndroidViewModel(application) {
     private val _errorMessage = MutableStateFlow<String?>(null)
     private val _showImportSheet = MutableStateFlow(false)
 
+    // Estados para el Módulo 3: Deck Builder IA
+    private val _generatedDeck = MutableStateFlow<GeneratedDeck?>(null)
+    private val _isGeneratingDeck = MutableStateFlow(false)
+    private val _selectedDeckStrategy = MutableStateFlow(DeckStrategy.META_OPTIMAL)
+    private val _selectedDeckEnergy = MutableStateFlow<String?>("Psychic")
+    private val _deckNoticeMessage = MutableStateFlow<String?>(null)
+
     val uiState: StateFlow<CardsUiState> = combine(
         repository.allCards,
+        repository.savedDecks,
         _searchQuery,
         _selectedExpansion,
         _selectedEnergy,
@@ -96,25 +119,27 @@ class CardViewModel(application: Application) : AndroidViewModel(application) {
         _sortOption,
         _gridColumns,
         _selectedCardForDetail,
-        _isImporting,
-        _importSummary,
-        _errorMessage,
-        _showImportSheet
+        _generatedDeck,
+        _selectedDeckStrategy,
+        _selectedDeckEnergy,
+        _deckNoticeMessage
     ) { args: Array<Any?> ->
         @Suppress("UNCHECKED_CAST")
         val allCards = args[0] as List<CardEntity>
-        val query = args[1] as String
-        val expansion = args[2] as String
-        val energy = args[3] as String
-        val rarity = args[4] as String
-        val tab = args[5] as CollectionTab
-        val sort = args[6] as SortOption
-        val gridCols = args[7] as Int
-        val detailCard = args[8] as CardEntity?
-        val isImporting = args[9] as Boolean
-        val importSummary = args[10] as CsvImportSummary?
-        val errorMsg = args[11] as String?
-        val showSheet = args[12] as Boolean
+        @Suppress("UNCHECKED_CAST")
+        val savedDecks = args[1] as List<DeckEntity>
+        val query = args[2] as String
+        val expansion = args[3] as String
+        val energy = args[4] as String
+        val rarity = args[5] as String
+        val tab = args[6] as CollectionTab
+        val sort = args[7] as SortOption
+        val gridCols = args[8] as Int
+        val detailCard = args[9] as CardEntity?
+        val genDeck = args[10] as GeneratedDeck?
+        val deckStrat = args[11] as DeckStrategy
+        val deckEnergy = args[12] as String?
+        val deckNotice = args[13] as String?
 
         val totalInCatalog = allCards.size
         val uniqueOwned = allCards.count { it.isOwned }
@@ -122,33 +147,26 @@ class CardViewModel(application: Application) : AndroidViewModel(application) {
         val duplicatesCount = allCards.count { it.quantity > 1 }
         val wishlistCount = allCards.count { it.isWishlist }
 
-        // Si hay una carta seleccionada para detalle, mantener sus datos actualizados
         val updatedDetailCard = detailCard?.let { selected ->
             allCards.find { it.id == selected.id } ?: selected
         }
 
         // Filtrado reactivo integral
         var filtered = allCards.filter { card ->
-            // Filtro por Tab
             val matchesTab = when (tab) {
                 CollectionTab.ALL -> true
                 CollectionTab.OWNED -> card.isOwned
                 CollectionTab.DUPLICATES -> card.quantity > 1
                 CollectionTab.WISHLIST -> card.isWishlist
+                CollectionTab.DECK_BUILDER -> true
             }
 
-            // Filtro por Búsqueda (Nombre o ID)
             val matchesQuery = query.isBlank() ||
                 card.name.contains(query, ignoreCase = true) ||
                 card.id.contains(query, ignoreCase = true)
 
-            // Filtro por Expansión
             val matchesExpansion = expansion == "ALL" || card.expansion.equals(expansion, ignoreCase = true)
-
-            // Filtro por Tipo de Energía
             val matchesEnergy = energy == "ALL" || card.energyType.equals(energy, ignoreCase = true)
-
-            // Filtro por Rareza
             val matchesRarity = rarity == "ALL" || card.rarity.equals(rarity, ignoreCase = true)
 
             matchesTab && matchesQuery && matchesExpansion && matchesEnergy && matchesRarity
@@ -177,10 +195,16 @@ class CardViewModel(application: Application) : AndroidViewModel(application) {
             sortOption = sort,
             gridColumns = gridCols,
             selectedCardForDetail = updatedDetailCard,
-            isImporting = isImporting,
-            importSummary = importSummary,
-            errorMessage = errorMsg,
-            showImportSheet = showSheet
+            isImporting = _isImporting.value,
+            importSummary = _importSummary.value,
+            errorMessage = _errorMessage.value,
+            showImportSheet = _showImportSheet.value,
+            generatedDeck = genDeck,
+            savedDecks = savedDecks,
+            isGeneratingDeck = _isGeneratingDeck.value,
+            selectedDeckStrategy = deckStrat,
+            selectedDeckEnergy = deckEnergy,
+            deckNoticeMessage = deckNotice
         )
     }.stateIn(
         scope = viewModelScope,
@@ -197,12 +221,10 @@ class CardViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onEnergySelected(energy: String) {
-        // Toggle si se vuelve a presionar el mismo
         _selectedEnergy.value = if (_selectedEnergy.value == energy && energy != "ALL") "ALL" else energy
     }
 
     fun onRaritySelected(rarity: String) {
-        // Toggle si se vuelve a presionar la misma rareza
         _selectedRarity.value = if (_selectedRarity.value == rarity && rarity != "ALL") "ALL" else rarity
     }
 
@@ -215,6 +237,10 @@ class CardViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onTabSelected(tab: CollectionTab) {
         _selectedTab.value = tab
+        // Si entra por primera vez a Deck Builder y no hay mazo generado, generar uno meta óptimo automáticamente
+        if (tab == CollectionTab.DECK_BUILDER && _generatedDeck.value == null) {
+            generateDeck(DeckStrategy.META_OPTIMAL)
+        }
     }
 
     fun onSortSelected(sort: SortOption) {
@@ -264,6 +290,55 @@ class CardViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             repository.toggleWishlist(card)
         }
+    }
+
+    // --- Módulo 3: Métodos del Asistente Deck Builder IA ---
+
+    fun onDeckStrategyChanged(strategy: DeckStrategy) {
+        _selectedDeckStrategy.value = strategy
+        generateDeck(strategy, _selectedDeckEnergy.value)
+    }
+
+    fun onDeckEnergyChanged(energy: String) {
+        _selectedDeckEnergy.value = energy
+        generateDeck(_selectedDeckStrategy.value, energy)
+    }
+
+    fun generateDeck(strategy: DeckStrategy, forcedEnergy: String? = null) {
+        viewModelScope.launch {
+            _isGeneratingDeck.value = true
+            val catalog = uiState.value.cards.ifEmpty {
+                // Si la vista filtrada está vacía, usar el catálogo completo
+                com.example.data.sample.InitialPocketData.getInitialCards()
+            }
+            val deck = repository.generateBalancedDeck(
+                allCards = catalog,
+                strategy = strategy,
+                forcedEnergy = if (strategy == DeckStrategy.MONO_TYPE) forcedEnergy else null
+            )
+            _generatedDeck.value = deck
+            _isGeneratingDeck.value = false
+            _deckNoticeMessage.value = "¡Mazo de 20 cartas generado exitosamente para ${deck.archetype}!"
+        }
+    }
+
+    fun saveCurrentDeck() {
+        val current = _generatedDeck.value ?: return
+        viewModelScope.launch {
+            repository.saveDeck(current)
+            _deckNoticeMessage.value = "¡Mazo '${current.name}' guardado en la base de datos local!"
+        }
+    }
+
+    fun deleteSavedDeck(deckId: String) {
+        viewModelScope.launch {
+            repository.deleteDeck(deckId)
+            _deckNoticeMessage.value = "Mazo eliminado."
+        }
+    }
+
+    fun clearDeckNotice() {
+        _deckNoticeMessage.value = null
     }
 
     fun importCsvFromUri(uri: Uri, strategy: UpsertStrategy) {
